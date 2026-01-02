@@ -119,6 +119,7 @@ export function layoutText(
           u1 = ab.right / atlasWidth;
           v1 = 1 - ab.bottom / atlasHeight;
         } else {
+          // yOrigin === 'top' (BMFont format)
           u0 = ab.left / atlasWidth;
           v0 = ab.top / atlasHeight;
           u1 = ab.right / atlasWidth;

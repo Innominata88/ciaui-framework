@@ -1,28 +1,28 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // @ciaui/render-webgpu - Text Renderer
-//
+// 
 // Renders text using MSDF (Multi-channel Signed Distance Field) technique.
 // Provides crisp text at any size, essential for VR where viewing distance varies.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { GPUContext } from "../GPUContext";
-import type { LoadedFont, TextRenderCommand, PositionedGlyph } from "./types";
-import { layoutText } from "./TextLayout";
+import { GPUContext } from '../GPUContext';
+import type { LoadedFont, TextRenderCommand, PositionedGlyph } from './types';
+import { layoutText } from './TextLayout';
 
 // ───────────────────────────────────────────────────────────────────────────
 // MSDF Shader
 // ───────────────────────────────────────────────────────────────────────────
 
 const TEXT_SHADER = /* wgsl */ `
-  // Uniforms
+  // Uniforms - carefully aligned to avoid padding issues
   struct Uniforms {
-    resolution: vec2f,
-    atlasSize: vec2f,
-    pxRange: f32,
-    _pad1: f32,
-    _pad2: f32,
-    _pad3: f32,
-  }
+    resolution: vec2f,    // 8 bytes at offset 0
+    atlasSize: vec2f,     // 8 bytes at offset 8
+    pxRange: f32,         // 4 bytes at offset 16
+    _pad1: f32,           // 4 bytes at offset 20
+    _pad2: f32,           // 4 bytes at offset 24
+    _pad3: f32,           // 4 bytes at offset 28
+  }                       // Total: 32 bytes, properly aligned
   
   @group(0) @binding(0) var<uniform> uniforms: Uniforms;
   @group(0) @binding(1) var fontAtlas: texture_2d<f32>;
@@ -95,18 +95,15 @@ const TEXT_SHADER = /* wgsl */ `
     // Sample the MSDF texture
     let msdf = textureSample(fontAtlas, fontSampler, input.uv);
     
-    // Calculate signed distance
+    // Calculate signed distance using median of RGB
     let sd = median(msdf.r, msdf.g, msdf.b);
     
-    // Calculate screen-space derivative for anti-aliasing
-    let screenTexSize = uniforms.atlasSize / uniforms.resolution;
-    let screenPxRange = uniforms.pxRange * length(vec2f(screenTexSize.x, screenTexSize.y));
+    // Use screen-space derivatives for anti-aliasing
+    // fwidth gives us how much the value changes per pixel
+    let screenPxDistance = fwidth(sd);
     
-    // Convert to screen pixels
-    let screenPxDistance = screenPxRange * (sd - 0.5);
-    
-    // Anti-aliased edge
-    let alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+    // Smooth edge - 0.5 is the edge of the glyph in normalized distance
+    let alpha = smoothstep(0.5 - screenPxDistance, 0.5 + screenPxDistance, sd);
     
     // Apply color with alpha
     return vec4f(input.color.rgb, input.color.a * alpha);
@@ -128,166 +125,162 @@ interface GlyphInstanceData {
 export class TextRenderer {
   private gpuContext: GPUContext;
   private font: LoadedFont | null = null;
-
+  
   // GPU resources
   private pipeline: GPURenderPipeline | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private glyphBuffer: GPUBuffer | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private bindGroup: GPUBindGroup | null = null;
-
+  
   // Glyph instance data
   private glyphInstances: GlyphInstanceData[] = [];
   private maxGlyphs: number = 10000;
   private glyphDataDirty: boolean = true;
-
+  
   // Pending text commands
   private textCommands: TextRenderCommand[] = [];
-
+  
   constructor(gpuContext: GPUContext) {
     this.gpuContext = gpuContext;
   }
-
+  
   /**
    * Initialize the text renderer (must be called before setFont)
    */
   async initialize(): Promise<boolean> {
     const { device } = this.gpuContext;
     if (!device) {
-      console.error("[TextRenderer] GPUContext not initialized");
+      console.error('[TextRenderer] GPUContext not initialized');
       return false;
     }
-
+    
     try {
-      console.log("[TextRenderer] Creating shader module...");
-
+      console.log('[TextRenderer] Creating shader module...');
+      
       const shaderModule = device.createShaderModule({
-        label: "Text Shader",
+        label: 'Text Shader',
         code: TEXT_SHADER,
       });
-
+      
       // Check for compilation errors
       const compilationInfo = await shaderModule.getCompilationInfo();
       for (const message of compilationInfo.messages) {
-        if (message.type === "error") {
-          console.error("[TextRenderer] Shader error:", message.message);
+        if (message.type === 'error') {
+          console.error('[TextRenderer] Shader error:', message.message);
           return false;
         }
       }
-
-      console.log("[TextRenderer] Creating buffers...");
-
+      
+      console.log('[TextRenderer] Creating buffers...');
+      
       // Uniform buffer: resolution(2) + atlasSize(2) + pxRange(1) + padding(3) = 8 floats = 32 bytes
       this.uniformBuffer = device.createBuffer({
-        label: "Text Uniforms",
+        label: 'Text Uniforms',
         size: 32,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
-
+      
       // Glyph instance buffer
       // Each glyph: position(2) + size(2) + uvMin(2) + uvMax(2) + color(4) = 12 floats = 48 bytes
       const glyphStride = 48;
       this.glyphBuffer = device.createBuffer({
-        label: "Glyph Instances",
+        label: 'Glyph Instances',
         size: this.maxGlyphs * glyphStride,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
-
+      
       // Create bind group layout (texture/sampler will be added when font is set)
       this.bindGroupLayout = device.createBindGroupLayout({
-        label: "Text Bind Group Layout",
+        label: 'Text Bind Group Layout',
         entries: [
           {
             binding: 0,
             visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-            buffer: { type: "uniform" },
+            buffer: { type: 'uniform' },
           },
           {
             binding: 1,
             visibility: GPUShaderStage.FRAGMENT,
-            texture: { sampleType: "float" },
+            texture: { sampleType: 'float' },
           },
           {
             binding: 2,
             visibility: GPUShaderStage.FRAGMENT,
-            sampler: { type: "filtering" },
+            sampler: { type: 'filtering' },
           },
           {
             binding: 3,
             visibility: GPUShaderStage.VERTEX,
-            buffer: { type: "read-only-storage" },
+            buffer: { type: 'read-only-storage' },
           },
         ],
       });
-
+      
       // Create pipeline
       const pipelineLayout = device.createPipelineLayout({
-        label: "Text Pipeline Layout",
+        label: 'Text Pipeline Layout',
         bindGroupLayouts: [this.bindGroupLayout],
       });
-
+      
       this.pipeline = device.createRenderPipeline({
-        label: "Text Render Pipeline",
+        label: 'Text Render Pipeline',
         layout: pipelineLayout,
         vertex: {
           module: shaderModule,
-          entryPoint: "vertexMain",
+          entryPoint: 'vertexMain',
         },
         fragment: {
           module: shaderModule,
-          entryPoint: "fragmentMain",
+          entryPoint: 'fragmentMain',
           targets: [
             {
               format: this.gpuContext.format,
               blend: {
                 color: {
-                  srcFactor: "src-alpha",
-                  dstFactor: "one-minus-src-alpha",
-                  operation: "add",
+                  srcFactor: 'src-alpha',
+                  dstFactor: 'one-minus-src-alpha',
+                  operation: 'add',
                 },
                 alpha: {
-                  srcFactor: "one",
-                  dstFactor: "one-minus-src-alpha",
-                  operation: "add",
+                  srcFactor: 'one',
+                  dstFactor: 'one-minus-src-alpha',
+                  operation: 'add',
                 },
               },
             },
           ],
         },
         primitive: {
-          topology: "triangle-list",
-          cullMode: "none",
+          topology: 'triangle-list',
+          cullMode: 'none',
         },
       });
-
-      console.log("[TextRenderer] Initialization complete");
+      
+      console.log('[TextRenderer] Initialization complete');
       return true;
+      
     } catch (error) {
-      console.error("[TextRenderer] Failed to initialize:", error);
+      console.error('[TextRenderer] Failed to initialize:', error);
       return false;
     }
   }
-
+  
   /**
    * Set the font to use for rendering
    */
   setFont(font: LoadedFont): void {
     const { device } = this.gpuContext;
-    if (
-      !device ||
-      !this.bindGroupLayout ||
-      !this.uniformBuffer ||
-      !this.glyphBuffer
-    ) {
-      console.error("[TextRenderer] Not initialized");
+    if (!device || !this.bindGroupLayout || !this.uniformBuffer || !this.glyphBuffer) {
+      console.error('[TextRenderer] Not initialized');
       return;
     }
-
+    
     this.font = font;
-
+    
     // Create bind group with font texture
     this.bindGroup = device.createBindGroup({
-      label: "Text Bind Group",
+      label: 'Text Bind Group',
       layout: this.bindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: this.uniformBuffer } },
@@ -296,10 +289,10 @@ export class TextRenderer {
         { binding: 3, resource: { buffer: this.glyphBuffer } },
       ],
     });
-
+    
     console.log(`[TextRenderer] Font set: ${font.name}`);
   }
-
+  
   /**
    * Clear all text
    */
@@ -308,7 +301,7 @@ export class TextRenderer {
     this.glyphInstances = [];
     this.glyphDataDirty = true;
   }
-
+  
   /**
    * Add text to render
    */
@@ -316,7 +309,7 @@ export class TextRenderer {
     this.textCommands.push(command);
     this.glyphDataDirty = true;
   }
-
+  
   /**
    * Add text with simpler API
    */
@@ -329,22 +322,22 @@ export class TextRenderer {
   ): void {
     this.addText({ text, x, y, fontSize, color });
   }
-
+  
   /**
    * Process text commands into glyph instances
    */
   private processCommands(): void {
     if (!this.font) return;
-
+    
     this.glyphInstances = [];
-
+    
     for (const cmd of this.textCommands) {
       const { positioned } = layoutText(this.font, cmd.text, {
         fontSize: cmd.fontSize,
         maxWidth: cmd.maxWidth,
         align: cmd.align,
       });
-
+      
       for (const glyph of positioned) {
         this.glyphInstances.push({
           position: [cmd.x + glyph.x, cmd.y + glyph.y],
@@ -356,29 +349,29 @@ export class TextRenderer {
       }
     }
   }
-
+  
   /**
    * Upload glyph data to GPU
    */
   private uploadGlyphData(): void {
     const { device } = this.gpuContext;
     if (!device || !this.glyphBuffer) return;
-
+    
     this.processCommands();
-
+    
     if (this.glyphInstances.length === 0) {
       this.glyphDataDirty = false;
       return;
     }
-
+    
     // Pack glyph data: position(2) + size(2) + uvMin(2) + uvMax(2) + color(4) = 12 floats
     const floatsPerGlyph = 12;
     const data = new Float32Array(this.glyphInstances.length * floatsPerGlyph);
-
+    
     for (let i = 0; i < this.glyphInstances.length; i++) {
       const g = this.glyphInstances[i];
       const offset = i * floatsPerGlyph;
-
+      
       data[offset + 0] = g.position[0];
       data[offset + 1] = g.position[1];
       data[offset + 2] = g.size[0];
@@ -392,11 +385,11 @@ export class TextRenderer {
       data[offset + 10] = g.color[2];
       data[offset + 11] = g.color[3];
     }
-
+    
     device.queue.writeBuffer(this.glyphBuffer, 0, data);
     this.glyphDataDirty = false;
   }
-
+  
   /**
    * Render text to the current render pass
    */
@@ -404,29 +397,25 @@ export class TextRenderer {
     if (!this.font || !this.pipeline || !this.bindGroup) {
       return;
     }
-
+    
     const { device, width, height } = this.gpuContext;
     if (!device || !this.uniformBuffer) return;
-
-    // Upload uniform data
+    
+    // Upload uniform data (must match shader struct layout exactly)
     const { atlas } = this.font;
     const uniformData = new Float32Array([
-      width,
-      height, // resolution
-      atlas.atlas.width,
-      atlas.atlas.height, // atlasSize
-      atlas.atlas.distanceRange, // pxRange
-      0,
-      0,
-      0, // padding
+      width, height,                              // resolution (vec2f)
+      atlas.atlas.width, atlas.atlas.height,     // atlasSize (vec2f)
+      atlas.atlas.distanceRange,                  // pxRange (f32)
+      0, 0, 0,                                     // padding (3x f32)
     ]);
     device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
-
+    
     // Upload glyph data if changed
     if (this.glyphDataDirty) {
       this.uploadGlyphData();
     }
-
+    
     // Draw glyphs
     if (this.glyphInstances.length > 0) {
       renderPass.setPipeline(this.pipeline);
@@ -434,14 +423,14 @@ export class TextRenderer {
       renderPass.draw(6, this.glyphInstances.length);
     }
   }
-
+  
   /**
    * Get glyph count for stats
    */
   getGlyphCount(): number {
     return this.glyphInstances.length;
   }
-
+  
   /**
    * Clean up resources
    */

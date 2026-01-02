@@ -67,7 +67,10 @@ function isBMFontFormat(data: unknown): data is BMFontData {
 function convertBMFontToMSDFAtlas(bmfont: BMFontData): MSDFAtlas {
   const { info, common, chars, kernings, distanceField } = bmfont;
   
-  // Convert to msdf-atlas-gen format
+  // BMFont stores pixel values, we normalize to em units (0-1 range)
+  // Then set emSize=1 so layout correctly scales by fontSize
+  const pxToEm = 1 / info.size;
+  
   const atlas: MSDFAtlas = {
     atlas: {
       type: (distanceField?.fieldType as 'msdf' | 'mtsdf' | 'sdf') ?? 'msdf',
@@ -78,28 +81,25 @@ function convertBMFontToMSDFAtlas(bmfont: BMFontData): MSDFAtlas {
       yOrigin: 'top', // BMFont uses top-left origin
     },
     metrics: {
-      emSize: info.size,
-      lineHeight: common.lineHeight / info.size,
-      ascender: common.base / info.size,
-      descender: (common.base - common.lineHeight) / info.size,
+      emSize: 1, // planeBounds are normalized, so 1em = 1 unit
+      lineHeight: common.lineHeight * pxToEm,
+      ascender: common.base * pxToEm,
+      descender: (common.base - common.lineHeight) * pxToEm,
       underlineY: 0,
-      underlineThickness: 1,
+      underlineThickness: 0.05,
     },
     glyphs: chars.map((char): MSDFGlyph => {
-      // BMFont stores pixel coordinates, we need to convert
-      const scale = 1 / info.size;
-      
       return {
         unicode: char.id,
-        advance: char.xadvance * scale,
-        // planeBounds: glyph position relative to baseline (in em units)
+        advance: char.xadvance * pxToEm,
+        // planeBounds: glyph quad relative to baseline (in em units, 0-1 range)
         planeBounds: char.width > 0 ? {
-          left: char.xoffset * scale,
-          bottom: (common.base - char.yoffset - char.height) * scale,
-          right: (char.xoffset + char.width) * scale,
-          top: (common.base - char.yoffset) * scale,
+          left: char.xoffset * pxToEm,
+          bottom: (common.base - char.yoffset - char.height) * pxToEm,
+          right: (char.xoffset + char.width) * pxToEm,
+          top: (common.base - char.yoffset) * pxToEm,
         } : undefined,
-        // atlasBounds: position in texture (in pixels)
+        // atlasBounds: position in texture (in pixels, NOT normalized)
         atlasBounds: char.width > 0 ? {
           left: char.x,
           bottom: char.y + char.height,
@@ -111,7 +111,7 @@ function convertBMFontToMSDFAtlas(bmfont: BMFontData): MSDFAtlas {
     kerning: kernings?.map(k => ({
       unicode1: k.first,
       unicode2: k.second,
-      advance: k.amount / info.size,
+      advance: k.amount * pxToEm,
     })),
   };
   
