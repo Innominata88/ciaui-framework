@@ -4,9 +4,10 @@
 // This example tests:
 // 1. WebGPU initialization
 // 2. Quad rendering with rounded corners
-// 3. Animation/frame loop
-// 4. Mode switching (desktop/immersive)
-// 5. Core reactive system
+// 3. Text rendering with MSDF fonts
+// 4. Animation/frame loop
+// 5. Mode switching (desktop/immersive)
+// 6. Core reactive system
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { 
@@ -44,6 +45,7 @@ const clearQuadsBtn = document.getElementById('clearQuads')!;
 
 let renderer: WebGPURenderer | null = null;
 let quads: Quad[] = [];
+let fontLoaded = false;
 
 // ───────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -196,6 +198,21 @@ async function main() {
     return;
   }
   
+  // Try to load font (if available)
+  try {
+    const font = await renderer.loadFont(
+      'IBM Plex Sans',
+      '/fonts/ibm-plex-sans.json',
+      '/fonts/ibm-plex-sans.png'
+    );
+    fontLoaded = font !== null;
+    console.log('Font loaded:', fontLoaded);
+  } catch (e) {
+    console.log('Font not available - text rendering disabled');
+    console.log('To enable text, generate an MSDF atlas. See docs/generating-fonts.md');
+    fontLoaded = false;
+  }
+  
   // Create initial quads
   quads = createInitialQuads();
   quadsEl.textContent = quads.length.toString();
@@ -228,19 +245,71 @@ async function main() {
   
   // Start render loop
   renderer.start((r, time) => {
-    // Update renderer with current quads
-    r.setQuads(quads);
+    // Clear previous frame data
+    r.clearQuads();
+    r.clearText();
     
-    // Animate some quads (example: pulse the buttons)
-    for (let i = 3; i < 8; i++) {
+    // Add quads
+    for (const quad of quads) {
+      r.addQuad(quad);
+    }
+    
+    // Animate some quads (pulse the buttons)
+    for (let i = 2; i < 7; i++) {
       if (quads[i]) {
         const pulse = Math.sin(time / 500 + i) * 0.1 + 0.9;
         quads[i].color[3] = pulse;
       }
     }
+    
+    // Add text if font is loaded
+    if (fontLoaded) {
+      const mode = getMode();
+      const headerFontSize = mode === 'immersive' ? 24 : 16;
+      const bodyFontSize = mode === 'immersive' ? 18 : 14;
+      
+      // Header text
+      r.drawText('CIAUI Framework', 250, mode === 'immersive' ? 24 : 16, headerFontSize, [1, 1, 1, 1]);
+      
+      // Panel title
+      r.drawText('Navigator', 32, mode === 'immersive' ? 104 : 80, bodyFontSize, [0.9, 0.9, 0.95, 1]);
+      
+      // Card labels
+      const cardStartX = mode === 'immersive' ? 352 : 272;
+      const cardStartY = mode === 'immersive' ? 88 : 64;
+      const cardWidth = mode === 'immersive' ? 200 : 150;
+      const cardHeight = mode === 'immersive' ? 150 : 100;
+      const cardGap = mode === 'immersive' ? 16 : 12;
+      
+      for (let row = 0; row < 2; row++) {
+        for (let col = 0; col < 3; col++) {
+          const x = cardStartX + col * (cardWidth + cardGap) + 12;
+          const y = cardStartY + row * (cardHeight + cardGap) + 16;
+          r.drawText(`Card ${row * 3 + col + 1}`, x, y, bodyFontSize, [0.8, 0.8, 0.85, 1]);
+        }
+      }
+      
+      // FPS counter
+      r.drawText(`FPS: ${r.getFPS()}`, canvas.width - 80, 16, 12, [0.5, 0.5, 0.55, 1]);
+    }
+    
+    // Update stats display
+    const stats = r.getStats();
+    quadsEl.textContent = stats.quads.toString();
   });
   
   console.log('Render loop started!');
+  if (!fontLoaded) {
+    console.log('');
+    console.log('📝 To enable text rendering:');
+    console.log('   1. Install msdf-atlas-gen: brew install msdf-atlas-gen');
+    console.log('   2. Download IBM Plex Sans from Google Fonts');
+    console.log('   3. Generate atlas:');
+    console.log('      msdf-atlas-gen -font IBMPlexSans-Regular.ttf -type msdf \\');
+    console.log('        -format png -imageout public/fonts/ibm-plex-sans.png \\');
+    console.log('        -json public/fonts/ibm-plex-sans.json -size 48 -pxrange 4');
+    console.log('');
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────

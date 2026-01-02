@@ -344,7 +344,42 @@ export class QuadRenderer {
   }
   
   /**
-   * Render a frame
+   * Render to an existing render pass (for multi-pass rendering)
+   */
+  renderToPass(renderPass: GPURenderPassEncoder, time: number = 0): void {
+    const { device, width, height } = this.gpuContext;
+    if (!device || !this.pipeline || !this.bindGroup || !this.uniformBuffer) {
+      return;
+    }
+    
+    // Update FPS
+    this.frameCount++;
+    const now = performance.now();
+    if (now - this.lastFpsTime >= 1000) {
+      this.fps = this.frameCount;
+      this.frameCount = 0;
+      this.lastFpsTime = now;
+    }
+    
+    // Upload uniform data
+    const uniformData = new Float32Array([width, height, time / 1000, 0]);
+    device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+    
+    // Upload quad data if changed
+    if (this.quadDataDirty) {
+      this.uploadQuadData();
+    }
+    
+    // Draw quads
+    if (this.quads.length > 0) {
+      renderPass.setPipeline(this.pipeline);
+      renderPass.setBindGroup(0, this.bindGroup);
+      renderPass.draw(6, this.quads.length);
+    }
+  }
+  
+  /**
+   * Render a frame (standalone - creates its own pass)
    */
   render(time: number = 0): void {
     const { device, width, height } = this.gpuContext;
@@ -407,6 +442,13 @@ export class QuadRenderer {
    */
   getFPS(): number {
     return this.fps;
+  }
+  
+  /**
+   * Get quad count for stats
+   */
+  getQuadCount(): number {
+    return this.quads.length;
   }
   
   /**

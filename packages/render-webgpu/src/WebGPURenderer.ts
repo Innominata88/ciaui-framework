@@ -6,6 +6,9 @@
 
 import { GPUContext, GPUContextOptions, GPUCapabilities } from './GPUContext';
 import { QuadRenderer, Quad } from './QuadRenderer';
+import { TextRenderer } from './text/TextRenderer';
+import { loadFont } from './text/FontLoader';
+import type { LoadedFont, TextRenderCommand } from './text/types';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Types
@@ -26,6 +29,7 @@ export type RenderCallback = (renderer: WebGPURenderer, time: number) => void;
 export class WebGPURenderer {
   private gpuContext: GPUContext;
   private quadRenderer: QuadRenderer | null = null;
+  private textRenderer: TextRenderer | null = null;
   private options: WebGPURendererOptions;
   
   // Frame loop
@@ -33,6 +37,9 @@ export class WebGPURenderer {
   private animationFrameId: number | null = null;
   private startTime: number = 0;
   private renderCallback: RenderCallback | null = null;
+  
+  // Font state
+  private currentFont: LoadedFont | null = null;
   
   // Public access to capabilities
   capabilities: GPUCapabilities | null = null;
@@ -64,6 +71,13 @@ export class WebGPURenderer {
         throw new Error('Failed to initialize quad renderer');
       }
       
+      // Initialize text renderer
+      this.textRenderer = new TextRenderer(this.gpuContext);
+      const textOk = await this.textRenderer.initialize();
+      if (!textOk) {
+        throw new Error('Failed to initialize text renderer');
+      }
+      
       // Set up resize handler
       this.setupResizeHandler();
       
@@ -81,6 +95,33 @@ export class WebGPURenderer {
         this.options.onError(error as Error);
       }
       return false;
+    }
+  }
+  
+  /**
+   * Load a font for text rendering
+   */
+  async loadFont(name: string, atlasJsonUrl: string, atlasImageUrl: string): Promise<LoadedFont | null> {
+    if (!this.gpuContext.device) {
+      console.error('[WebGPURenderer] Cannot load font - not initialized');
+      return null;
+    }
+    
+    try {
+      const font = await loadFont(
+        this.gpuContext.device,
+        name,
+        atlasJsonUrl,
+        atlasImageUrl
+      );
+      
+      this.currentFont = font;
+      this.textRenderer?.setFont(font);
+      
+      return font;
+    } catch (error) {
+      console.error('[WebGPURenderer] Failed to load font:', error);
+      return null;
     }
   }
   
@@ -140,14 +181,12 @@ export class WebGPURenderer {
       this.renderCallback(this, time);
     }
     
-    // Render quads
-    if (this.quadRenderer) {
-      this.quadRenderer.render(time);
-      
-      // Report FPS
-      if (this.options.onFrame) {
-        this.options.onFrame(time, this.quadRenderer.getFPS());
-      }
+    // Render frame
+    this.renderFrame(time);
+    
+    // Report FPS
+    if (this.options.onFrame && this.quadRenderer) {
+      this.options.onFrame(time, this.quadRenderer.getFPS());
     }
     
     // Schedule next frame
@@ -155,12 +194,44 @@ export class WebGPURenderer {
   };
   
   /**
-   * Render a single frame (for manual control)
+   * Render a single frame
    */
   renderFrame(time: number = 0): void {
+    const { device } = this.gpuContext;
+    if (!device) return;
+    
+    // Get current texture
+    const textureView = this.gpuContext.getCurrentTexture().createView();
+    
+    // Create command encoder
+    const encoder = this.gpuContext.createCommandEncoder('Frame Render');
+    
+    // Begin render pass
+    const renderPass = encoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: textureView,
+          clearValue: { r: 0.04, g: 0.04, b: 0.06, a: 1 },
+          loadOp: 'clear',
+          storeOp: 'store',
+        },
+      ],
+    });
+    
+    // Render quads first (background)
     if (this.quadRenderer) {
-      this.quadRenderer.render(time);
+      this.quadRenderer.renderToPass(renderPass, time);
     }
+    
+    // Render text on top
+    if (this.textRenderer) {
+      this.textRenderer.render(renderPass);
+    }
+    
+    renderPass.end();
+    
+    // Submit
+    this.gpuContext.submit([encoder.finish()]);
   }
   
   // ─────────────────────────────────────────────────────────────────────────
@@ -189,7 +260,7 @@ export class WebGPURenderer {
   }
   
   /**
-   * Helper: Draw a rectangle (convenience method)
+   * Helper: Draw a rectangle
    */
   drawRect(
     x: number,
@@ -200,6 +271,44 @@ export class WebGPURenderer {
     cornerRadius: number = 0
   ): void {
     this.addQuad({ x, y, width, height, color, cornerRadius });
+  }
+  
+  // ─────────────────────────────────────────────────────────────────────────
+  // Text Rendering API
+  // ─────────────────────────────────────────────────────────────────────────
+  
+  /**
+   * Clear all text
+   */
+  clearText(): void {
+    this.textRenderer?.clear();
+  }
+  
+  /**
+   * Add text to render
+   */
+  addText(command: TextRenderCommand): void {
+    this.textRenderer?.addText(command);
+  }
+  
+  /**
+   * Draw text (simple API)
+   */
+  drawText(
+    text: string,
+    x: number,
+    y: number,
+    fontSize: number,
+    color: [number, number, number, number] = [1, 1, 1, 1]
+  ): void {
+    this.textRenderer?.drawText(text, x, y, fontSize, color);
+  }
+  
+  /**
+   * Check if a font is loaded
+   */
+  hasFont(): boolean {
+    return this.currentFont !== null;
   }
   
   // ─────────────────────────────────────────────────────────────────────────
@@ -225,11 +334,23 @@ export class WebGPURenderer {
   }
   
   /**
+   * Get rendering stats
+   */
+  getStats(): { quads: number; glyphs: number; fps: number } {
+    return {
+      quads: this.quadRenderer?.getQuadCount() ?? 0,
+      glyphs: this.textRenderer?.getGlyphCount() ?? 0,
+      fps: this.getFPS(),
+    };
+  }
+  
+  /**
    * Clean up all resources
    */
   destroy(): void {
     this.stop();
     this.quadRenderer?.destroy();
+    this.textRenderer?.destroy();
     this.gpuContext.destroy();
     console.log('[WebGPURenderer] Destroyed');
   }
