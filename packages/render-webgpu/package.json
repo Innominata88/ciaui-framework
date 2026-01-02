@@ -1,0 +1,28 @@
+{
+  "name": "@ciaui/render-webgpu",
+  "version": "0.0.1",
+  "description": "WebGPU renderer for CIAUI",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "peerDependencies": {
+    "@ciaui/core": "^0.0.1"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.40",
+    "typescript": "^5.3.0"
+  },
+  "license": "MIT"
+}

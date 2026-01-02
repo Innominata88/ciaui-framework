@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CIAUI - Hello WebGPU</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #0a0a0f;
+      color: #f0f0f5;
+      overflow: hidden;
+    }
+    
+    #app {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    #stats {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+      z-index: 100;
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    #stats .label {
+      color: #a0a0b0;
+    }
+    
+    #stats .value {
+      color: #60a5fa;
+      font-weight: 600;
+    }
+    
+    #stats .row {
+      margin-bottom: 4px;
+    }
+    
+    #stats .row:last-child {
+      margin-bottom: 0;
+    }
+    
+    #controls {
+      position: fixed;
+      bottom: 16px;
+      left: 16px;
+      display: flex;
+      gap: 8px;
+      z-index: 100;
+    }
+    
+    button {
+      background: rgba(96, 165, 250, 0.2);
+      color: #60a5fa;
+      border: 1px solid rgba(96, 165, 250, 0.3);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    
+    button:hover {
+      background: rgba(96, 165, 250, 0.3);
+      border-color: rgba(96, 165, 250, 0.5);
+    }
+    
+    button:active {
+      transform: scale(0.98);
+    }
+    
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    
+    #error {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(248, 113, 113, 0.1);
+      border: 1px solid rgba(248, 113, 113, 0.3);
+      padding: 24px 32px;
+      border-radius: 12px;
+      text-align: center;
+      max-width: 400px;
+      display: none;
+    }
+    
+    #error h2 {
+      color: #f87171;
+      margin-bottom: 12px;
+    }
+    
+    #error p {
+      color: #a0a0b0;
+      line-height: 1.5;
+    }
+    
+    #error a {
+      color: #60a5fa;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <canvas id="canvas"></canvas>
+    
+    <div id="stats">
+      <div class="row">
+        <span class="label">FPS:</span>
+        <span class="value" id="fps">--</span>
+      </div>
+      <div class="row">
+        <span class="label">Quads:</span>
+        <span class="value" id="quads">--</span>
+      </div>
+      <div class="row">
+        <span class="label">Mode:</span>
+        <span class="value" id="mode">desktop</span>
+      </div>
+      <div class="row">
+        <span class="label">GPU:</span>
+        <span class="value" id="gpu">--</span>
+      </div>
+    </div>
+    
+    <div id="controls">
+      <button id="toggleMode">Toggle Mode (Desktop/Immersive)</button>
+      <button id="addQuads">Add 100 Quads</button>
+      <button id="clearQuads">Clear</button>
+    </div>
+    
+    <div id="error">
+      <h2>WebGPU Not Available</h2>
+      <p>
+        Your browser doesn't support WebGPU yet. 
+        Please try <a href="https://www.google.com/chrome/canary/" target="_blank">Chrome Canary</a> 
+        or enable WebGPU flags in your browser.
+      </p>
+    </div>
+  </div>
+  
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>
