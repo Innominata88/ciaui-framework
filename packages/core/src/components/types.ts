@@ -178,6 +178,8 @@ export interface QuadData {
   height: number;
   color: Color;
   cornerRadius?: number;
+  /** Z-index for render ordering (higher = on top) */
+  zIndex?: number;
 }
 
 /**
@@ -191,6 +193,8 @@ export interface TextData {
   color: Color;
   maxWidth?: number;
   align?: 'left' | 'center' | 'right';
+  /** Z-index for render ordering (higher = on top) */
+  zIndex?: number;
 }
 
 /**

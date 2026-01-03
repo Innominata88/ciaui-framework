@@ -135,6 +135,7 @@ export class Panel extends Container {
       height: this._bounds.height,
       color: applyOpacity(this._color, this.opacity),
       cornerRadius: this._cornerRadius,
+      zIndex: this.zIndex,
     });
     
     // Header background (if showing)
@@ -153,6 +154,7 @@ export class Panel extends Container {
         height: this._headerHeight,
         color: applyOpacity(headerColor as Color, this.opacity),
         cornerRadius: this._cornerRadius, // Only top corners should be rounded ideally
+        zIndex: this.zIndex,
       });
       
       // Title text
@@ -164,6 +166,7 @@ export class Panel extends Container {
           y: this._bounds.y + (this._headerHeight - this._titleFontSize) / 2,
           fontSize: this._titleFontSize,
           color: applyOpacity(this._titleColor, this.opacity),
+          zIndex: this.zIndex,
         });
       }
     }

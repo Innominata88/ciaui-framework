@@ -187,6 +187,10 @@ export class UIManager implements IUIManager {
     // Render component tree
     const output = this._root.render();
     
+    // Sort quads and texts by z-index (lower z-index first = rendered first = behind)
+    output.quads.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+    output.texts.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+    
     // Update hit regions in input manager
     this.syncHitRegions(output.hitRegions);
     

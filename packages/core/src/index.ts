@@ -99,6 +99,12 @@ export {
   Button,
   Panel,
   Card,
+  Stack,
+  Row,
+  Column,
+  Spacer,
+  fixedSpacer,
+  flexSpacer,
   // UI Manager
   UIManager,
   createUIManager,
@@ -108,6 +114,10 @@ export {
   applyOpacity,
   lightenColor,
   darkenColor,
+  // Layout utilities
+  DEFAULT_LAYOUT_CONFIG,
+  computeStackLayout,
+  parseSize,
 } from './components';
 
 export type {
@@ -137,7 +147,18 @@ export type {
   ButtonProps,
   PanelProps,
   CardProps,
+  StackProps,
+  SpacerProps,
   UIManagerOptions,
+  // Layout types
+  LayoutDirection,
+  JustifyContent,
+  AlignItems,
+  AlignSelf,
+  LayoutConfig,
+  ChildLayoutProps,
+  ChildLayout,
+  LayoutResult,
 } from './components';
 
 // ───────────────────────────────────────────────────────────────────────────

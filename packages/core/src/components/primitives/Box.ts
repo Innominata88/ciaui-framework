@@ -237,6 +237,7 @@ export class Box extends Component {
       height: this._bounds.height,
       color: applyOpacity(displayColor, this.opacity),
       cornerRadius: this._cornerRadius,
+      zIndex: this.zIndex,
     });
     
     // Add hit region if interactive

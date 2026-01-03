@@ -6,6 +6,7 @@
 // 2. Components auto-register hit regions
 // 3. Declarative UI construction
 // 4. Automatic hover/click handling
+// 5. Auto-layout with Stack/Row/Column
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { 
@@ -24,6 +25,10 @@ import {
   Button,
   Panel,
   Card,
+  // Layout components
+  Row,
+  Column,
+  Spacer,
 } from '@ciaui/core';
 
 import type { ComponentColor, RenderOutput } from '@ciaui/core';
@@ -135,7 +140,7 @@ function buildUI(): void {
   }
   
   // ─────────────────────────────────────────────────────────────────────────
-  // Toolbar Buttons
+  // Toolbar Buttons (using Row layout!)
   // ─────────────────────────────────────────────────────────────────────────
   
   const buttonColors = [
@@ -149,11 +154,20 @@ function buildUI(): void {
   const buttonGap = isImmersive ? 12 : 8;
   const buttonY = isImmersive ? 8 : 8;
   
+  // Create toolbar using Row layout - no manual positioning!
+  const toolbar = new Row({
+    id: 'toolbar',
+    x: 16,
+    y: buttonY,
+    width: buttonColors.length * (buttonSize + buttonGap) - buttonGap,
+    height: buttonSize,
+    gap: buttonGap,
+    align: 'center',
+  });
+  
   buttonColors.forEach((color, i) => {
     const btn = new Box({
       id: `toolbar-btn-${i}`,
-      x: 16 + i * (buttonSize + buttonGap),
-      y: buttonY,
       width: buttonSize,
       height: buttonSize,
       color: color,
@@ -164,11 +178,13 @@ function buildUI(): void {
         console.log(`[UI] Toolbar button ${i + 1} clicked`);
       },
     });
-    uiManager.add(btn);
+    toolbar.addChild(btn);
   });
   
+  uiManager.add(toolbar);
+  
   // ─────────────────────────────────────────────────────────────────────────
-  // Left Panel
+  // Left Panel (using Column layout for nav buttons!)
   // ─────────────────────────────────────────────────────────────────────────
   
   const leftPanel = new Panel({
@@ -185,13 +201,20 @@ function buildUI(): void {
   });
   uiManager.add(leftPanel);
   
-  // Add some buttons inside the panel
+  // Create nav buttons using Column layout - auto-stacked!
+  const navButtonColumn = new Column({
+    id: 'nav-buttons',
+    x: 16,
+    y: headerHeight + gap + 56,
+    width: panelWidth - 32,
+    height: 200,
+    gap: 8,
+  });
+  
   const panelButtonLabels = ['Datasets', 'Views', 'Annotations', 'Settings'];
   panelButtonLabels.forEach((label, i) => {
     const btn = new Button({
       id: `nav-btn-${i}`,
-      x: 16,
-      y: headerHeight + gap + 56 + i * (buttonSize + 8),
       width: panelWidth - 32,
       height: buttonSize,
       label: label,
@@ -202,8 +225,10 @@ function buildUI(): void {
         console.log(`[UI] Nav button "${label}" clicked`);
       },
     });
-    uiManager.add(btn);
+    navButtonColumn.addChild(btn);
   });
+  
+  uiManager.add(navButtonColumn);
   
   // ─────────────────────────────────────────────────────────────────────────
   // Main Content Area - Card Grid
@@ -240,6 +265,7 @@ function buildUI(): void {
         cornerRadius: tokens.radius?.lg ?? 8,
         interactive: true,
         draggable: true,
+        zIndex: 1,  // Base z-index for cards
         onClick: () => {
           console.log(`[UI] Card ${idx + 1} clicked`);
         },
@@ -247,6 +273,8 @@ function buildUI(): void {
           // Capture current position when drag starts
           dragStartX = card.bounds.x;
           dragStartY = card.bounds.y;
+          // Boost z-index to bring card to front while dragging
+          card.setProps({ zIndex: 100 });
           console.log(`[UI] Start dragging card ${idx + 1}`);
         },
         onDrag: (dragX, dragY, dx, dy) => {
@@ -257,6 +285,8 @@ function buildUI(): void {
           });
         },
         onDragEnd: (dragX, dragY) => {
+          // Reset z-index after drag
+          card.setProps({ zIndex: 1 });
           console.log(`[UI] End dragging card ${idx + 1}`);
         },
       });
@@ -467,6 +497,8 @@ async function main() {
   console.log('Render loop started!');
   console.log('');
   console.log('🎮 Component System Features:');
+  console.log('   • Toolbar uses Row layout (auto-positioned)');
+  console.log('   • Nav buttons use Column layout (auto-stacked)');
   console.log('   • Click toolbar buttons - logs to console');
   console.log('   • Click nav buttons - logs to console');
   console.log('   • Hover cards - visual feedback');

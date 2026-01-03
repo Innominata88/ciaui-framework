@@ -44,6 +44,7 @@ const TEXT_SHADER = /* wgsl */ `
     @builtin(position) position: vec4f,
     @location(0) uv: vec2f,
     @location(1) color: vec4f,
+    @location(2) glyphSize: vec2f,  // Pass glyph size to fragment
   }
   
   // Quad vertices (same as QuadRenderer)
@@ -80,6 +81,7 @@ const TEXT_SHADER = /* wgsl */ `
     output.position = vec4f(ndcPos, 0.0, 1.0);
     output.uv = uv;
     output.color = glyph.color;
+    output.glyphSize = glyph.size;
     
     return output;
   }
@@ -89,7 +91,7 @@ const TEXT_SHADER = /* wgsl */ `
     return max(min(r, g), min(max(r, g), b));
   }
   
-  // Fragment shader - MSDF sampling
+  // Fragment shader - MSDF sampling with proper pxRange usage
   @fragment
   fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     // Sample the MSDF texture
@@ -98,12 +100,23 @@ const TEXT_SHADER = /* wgsl */ `
     // Calculate signed distance using median of RGB
     let sd = median(msdf.r, msdf.g, msdf.b);
     
-    // Use screen-space derivatives for anti-aliasing
-    // fwidth gives us how much the value changes per pixel
-    let screenPxDistance = fwidth(sd);
+    // Calculate the proper screen pixel distance using pxRange
+    // pxRange is the distance field range in pixels in the atlas
+    // We need to scale it based on glyph size vs atlas texel size
+    let uvSize = input.uv - vec2f(0.0); // This is for derivative calculation
+    let screenPxRange = max(input.glyphSize.x, input.glyphSize.y) * uniforms.pxRange / 32.0;
     
-    // Smooth edge - 0.5 is the edge of the glyph in normalized distance
-    let alpha = smoothstep(0.5 - screenPxDistance, 0.5 + screenPxDistance, sd);
+    // Use screen-space derivatives for anti-aliasing, scaled by pxRange
+    let unitRange = screenPxRange / length(vec2f(dpdx(sd), dpdy(sd)));
+    let screenPxDistance = (sd - 0.5) * unitRange;
+    
+    // Smooth edge with 0.5 pixel anti-aliasing
+    let alpha = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+    
+    // Discard fully transparent pixels
+    if (alpha < 0.01) {
+      discard;
+    }
     
     // Apply color with alpha
     return vec4f(input.color.rgb, input.color.a * alpha);

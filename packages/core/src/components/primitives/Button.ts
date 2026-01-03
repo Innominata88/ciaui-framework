@@ -160,6 +160,7 @@ export class Button extends Box {
       fontSize: this._fontSize,
       color: applyOpacity(textColor, this.opacity),
       align: 'left', // We manually center
+      zIndex: this.zIndex,
     });
     
     return output;

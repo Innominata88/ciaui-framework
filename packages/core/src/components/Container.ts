@@ -268,10 +268,34 @@ export abstract class Container extends Component implements IContainerComponent
       hitRegions: [...selfOutput.hitRegions],
     };
     
+    // Merge children's output, adding parent's zIndex to children's zIndex
+    // This ensures children render at the same layer as their parent
+    const parentZIndex = this.zIndex;
+    
     for (const childOutput of childOutputs) {
-      output.quads.push(...childOutput.quads);
-      output.texts.push(...childOutput.texts);
-      output.hitRegions.push(...childOutput.hitRegions);
+      // Add quads with parent's zIndex added
+      for (const quad of childOutput.quads) {
+        output.quads.push({
+          ...quad,
+          zIndex: (quad.zIndex ?? 0) + parentZIndex,
+        });
+      }
+      
+      // Add texts with parent's zIndex added
+      for (const text of childOutput.texts) {
+        output.texts.push({
+          ...text,
+          zIndex: (text.zIndex ?? 0) + parentZIndex,
+        });
+      }
+      
+      // Add hit regions with parent's zIndex added
+      for (const region of childOutput.hitRegions) {
+        output.hitRegions.push({
+          ...region,
+          zIndex: (region.zIndex ?? 0) + parentZIndex,
+        });
+      }
     }
     
     this.clearDirty();

@@ -128,6 +128,7 @@ export class Text extends Component {
         color: applyOpacity(this._textColor, this.opacity),
         maxWidth: this._maxWidth ?? this._bounds.width,
         align: this._align,
+        zIndex: this.zIndex,
       }],
       hitRegions: [],
     };

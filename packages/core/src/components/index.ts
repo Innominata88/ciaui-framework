@@ -34,14 +34,61 @@ export {
   darkenColor,
 } from './types';
 
+// Layout types and utilities
+export type {
+  LayoutDirection,
+  JustifyContent,
+  AlignItems,
+  AlignSelf,
+  Size,
+  FlexProps,
+  LayoutConfig,
+  ChildLayoutProps,
+  LayoutConstraints,
+  MeasuredSize,
+  ChildLayout,
+  LayoutResult,
+  ChildInfo,
+} from './layout';
+
+export {
+  DEFAULT_LAYOUT_CONFIG,
+  tightConstraints,
+  looseConstraints,
+  unboundedConstraints,
+  computeStackLayout,
+  parseSize,
+} from './layout';
+
 // Base classes
 export { Component as BaseComponent } from './Component';
 export { Container, RootContainer } from './Container';
 export type { ContainerComponentProps } from './Container';
 
 // Primitives
-export { Box, Text, Button, Panel, Card } from './primitives';
-export type { BoxProps, TextProps, ButtonProps, PanelProps, CardProps } from './primitives';
+export { 
+  Box, 
+  Text, 
+  Button, 
+  Panel, 
+  Card,
+  Stack,
+  Row,
+  Column,
+  Spacer,
+  fixedSpacer,
+  flexSpacer,
+} from './primitives';
+
+export type { 
+  BoxProps, 
+  TextProps, 
+  ButtonProps, 
+  PanelProps, 
+  CardProps,
+  StackProps,
+  SpacerProps,
+} from './primitives';
 
 // UI Manager
 export { UIManager, createUIManager } from './UIManager';
