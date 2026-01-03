@@ -15,7 +15,17 @@ import {
   getMode, 
   onModeChange, 
   getTokens,
-  VERSION as CORE_VERSION 
+  VERSION as CORE_VERSION,
+  createInputManager,
+  InputManager,
+} from '@ciaui/core';
+
+// Import input types 
+import type {
+  ClickEvent,
+  Rect,
+  InputKeyboardEvent,
+  InputDragEvent,
 } from '@ciaui/core';
 
 import { 
@@ -44,8 +54,19 @@ const clearQuadsBtn = document.getElementById('clearQuads')!;
 // ───────────────────────────────────────────────────────────────────────────
 
 let renderer: WebGPURenderer | null = null;
+let inputManager: InputManager | null = null;
 let quads: Quad[] = [];
 let fontLoaded = false;
+
+// Interaction state
+let hoveredQuadIndex: number | null = null;
+let activeQuadIndex: number | null = null;
+let dragOffset = { x: 0, y: 0 };
+
+// Track which quads are interactive (buttons start at index 2, cards start at index 7)
+const BUTTON_START_INDEX = 2;
+const BUTTON_COUNT = 5;
+const CARD_START_INDEX = 7;
 
 // ───────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -154,6 +175,150 @@ function addRandomQuads(count: number): void {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// Input Management
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Register hit regions for interactive quads
+ */
+function registerHitRegions(): void {
+  if (!inputManager) return;
+  
+  // Clear existing regions
+  inputManager.clearRegions();
+  
+  // Note: Quads are already in device pixels (canvas coordinates)
+  // InputManager.toCanvasCoords converts mouse CSS coords to canvas coords
+  // So hit regions should use quad bounds directly (no pixelRatio multiplication)
+  
+  // Register buttons (indices 2-6)
+  for (let i = BUTTON_START_INDEX; i < BUTTON_START_INDEX + BUTTON_COUNT; i++) {
+    const quad = quads[i];
+    if (!quad) continue;
+    
+    const bounds: Rect = {
+      x: quad.x,
+      y: quad.y,
+      width: quad.width,
+      height: quad.height,
+    };
+    
+    inputManager.register(`button-${i - BUTTON_START_INDEX}`, bounds, {
+      onPointerEnter: () => {
+        hoveredQuadIndex = i;
+        console.log(`[Input] Hover button ${i - BUTTON_START_INDEX + 1}`);
+      },
+      onPointerLeave: () => {
+        if (hoveredQuadIndex === i) hoveredQuadIndex = null;
+      },
+      onClick: (e: ClickEvent) => {
+        console.log(`[Input] Click button ${i - BUTTON_START_INDEX + 1} at (${e.x.toFixed(0)}, ${e.y.toFixed(0)})`);
+        // Flash the button brighter
+        if (quads[i]) {
+          const originalAlpha = quads[i].color[3];
+          quads[i].color = [1, 1, 1, 1];
+          setTimeout(() => {
+            if (quads[i]) quads[i].color[3] = originalAlpha;
+          }, 100);
+        }
+      },
+    }, {
+      cursor: 'pointer',
+      zIndex: 10,
+      data: { type: 'button', index: i - BUTTON_START_INDEX },
+    });
+  }
+  
+  // Register cards
+  for (let i = CARD_START_INDEX; i < quads.length; i++) {
+    const quad = quads[i];
+    if (!quad) continue;
+    
+    const cardIndex = i - CARD_START_INDEX;
+    const bounds: Rect = {
+      x: quad.x,
+      y: quad.y,
+      width: quad.width,
+      height: quad.height,
+    };
+    
+    inputManager.register(`card-${cardIndex}`, bounds, {
+      onPointerEnter: () => {
+        hoveredQuadIndex = i;
+      },
+      onPointerLeave: () => {
+        if (hoveredQuadIndex === i) hoveredQuadIndex = null;
+      },
+      onClick: (e: ClickEvent) => {
+        console.log(`[Input] Click card ${cardIndex + 1} at (${e.x.toFixed(0)}, ${e.y.toFixed(0)})`);
+      },
+      onDragStart: (e: InputDragEvent) => {
+        activeQuadIndex = i;
+        dragOffset.x = e.x - quad.x;
+        dragOffset.y = e.y - quad.y;
+        console.log(`[Input] Start dragging card ${cardIndex + 1}`);
+      },
+      onDrag: (e: InputDragEvent) => {
+        if (activeQuadIndex === i && quads[i]) {
+          quads[i].x = e.x - dragOffset.x;
+          quads[i].y = e.y - dragOffset.y;
+          // Update hit region bounds
+          inputManager?.updateBounds(`card-${cardIndex}`, {
+            x: quads[i].x,
+            y: quads[i].y,
+            width: quad.width,
+            height: quad.height,
+          });
+        }
+      },
+      onDragEnd: () => {
+        if (activeQuadIndex === i) {
+          console.log(`[Input] End dragging card ${cardIndex + 1}`);
+          activeQuadIndex = null;
+        }
+      },
+    }, {
+      cursor: 'grab',
+      zIndex: 5 + cardIndex, // Cards stack in order
+      data: { type: 'card', index: cardIndex },
+    });
+  }
+  
+  console.log(`[Input] Registered ${inputManager.getRegionCount()} hit regions`);
+}
+
+/**
+ * Set up input manager
+ */
+function setupInputManager(): void {
+  inputManager = createInputManager({
+    target: canvas,
+    pixelRatio: window.devicePixelRatio || 1,
+    dragThreshold: 5,
+    touch: true,
+  });
+  
+  // Start listening for input
+  inputManager.start();
+  
+  // Log all pointer moves (debug)
+  // inputManager.on('pointermove', (e) => {
+  //   console.log(`Move: (${e.pointer.x.toFixed(0)}, ${e.pointer.y.toFixed(0)})`);
+  // });
+  
+  // Global keyboard handler
+  inputManager.on<InputKeyboardEvent>('keydown', (e) => {
+    if (e.key === 'Escape') {
+      // Cancel drag
+      activeQuadIndex = null;
+      console.log('[Input] Cancelled drag');
+    }
+  });
+  
+  console.log('[Input] InputManager initialized');
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // Main Initialization
 // ───────────────────────────────────────────────────────────────────────────
 
@@ -217,6 +382,10 @@ async function main() {
   quads = createInitialQuads();
   quadsEl.textContent = quads.length.toString();
   
+  // Set up input manager
+  setupInputManager();
+  registerHitRegions();
+  
   // Set up mode change listener
   onModeChange((mode) => {
     console.log('Mode changed to:', mode);
@@ -225,6 +394,9 @@ async function main() {
     // Recreate quads with new sizes
     quads = createInitialQuads();
     quadsEl.textContent = quads.length.toString();
+    
+    // Re-register hit regions with new bounds
+    registerHitRegions();
   });
   
   // Set up button handlers
@@ -241,6 +413,7 @@ async function main() {
   clearQuadsBtn.addEventListener('click', () => {
     quads = createInitialQuads();
     quadsEl.textContent = quads.length.toString();
+    registerHitRegions();
   });
   
   // Start render loop
@@ -249,14 +422,30 @@ async function main() {
     r.clearQuads();
     r.clearText();
     
-    // Add quads
-    for (const quad of quads) {
-      r.addQuad(quad);
+    // Add quads with hover/active effects
+    for (let i = 0; i < quads.length; i++) {
+      const quad = quads[i];
+      
+      // Apply hover effect (brighten)
+      if (hoveredQuadIndex === i || activeQuadIndex === i) {
+        const brightness = activeQuadIndex === i ? 1.3 : 1.15;
+        r.addQuad({
+          ...quad,
+          color: [
+            Math.min(1, quad.color[0] * brightness),
+            Math.min(1, quad.color[1] * brightness),
+            Math.min(1, quad.color[2] * brightness),
+            quad.color[3],
+          ] as [number, number, number, number],
+        });
+      } else {
+        r.addQuad(quad);
+      }
     }
     
     // Animate some quads (pulse the buttons)
-    for (let i = 2; i < 7; i++) {
-      if (quads[i]) {
+    for (let i = BUTTON_START_INDEX; i < BUTTON_START_INDEX + BUTTON_COUNT; i++) {
+      if (quads[i] && hoveredQuadIndex !== i) {
         const pulse = Math.sin(time / 500 + i) * 0.1 + 0.9;
         quads[i].color[3] = pulse;
       }
