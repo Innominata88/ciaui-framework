@@ -87,6 +87,59 @@ export type {
   DragEvent as InputDragEvent,
 } from './input';
 
+// Component system
+export {
+  // Base classes
+  BaseComponent,
+  Container,
+  RootContainer,
+  // Primitives
+  Box,
+  Text,
+  Button,
+  Panel,
+  Card,
+  // UI Manager
+  UIManager,
+  createUIManager,
+  // Utilities
+  generateComponentId,
+  parsePadding,
+  applyOpacity,
+  lightenColor,
+  darkenColor,
+} from './components';
+
+export type {
+  // Types
+  Color as ComponentColor,
+  ComponentState,
+  InteractionState,
+  LayoutProps,
+  ComputedBounds,
+  BackgroundStyle,
+  TextStyle,
+  Padding,
+  BaseComponentProps,
+  InteractiveProps,
+  ContainerProps,
+  QuadData,
+  TextData,
+  RenderOutput,
+  HitRegionData,
+  Component,
+  ContainerComponent,
+  IUIManager,
+  // Props types
+  ContainerComponentProps,
+  BoxProps,
+  TextProps,
+  ButtonProps,
+  PanelProps,
+  CardProps,
+  UIManagerOptions,
+} from './components';
+
 // ───────────────────────────────────────────────────────────────────────────
 // Version
 // ───────────────────────────────────────────────────────────────────────────

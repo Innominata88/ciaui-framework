@@ -1,13 +1,11 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// CIAUI Hello World - WebGPU Test
+// CIAUI Hello World - Component System Demo
 // 
-// This example tests:
-// 1. WebGPU initialization
-// 2. Quad rendering with rounded corners
-// 3. Text rendering with MSDF fonts
-// 4. Animation/frame loop
-// 5. Mode switching (desktop/immersive)
-// 6. Core reactive system
+// This example demonstrates the component system:
+// 1. UIManager coordinates everything
+// 2. Components auto-register hit regions
+// 3. Declarative UI construction
+// 4. Automatic hover/click handling
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { 
@@ -18,20 +16,21 @@ import {
   VERSION as CORE_VERSION,
   createInputManager,
   InputManager,
+  // Component system
+  createUIManager,
+  UIManager,
+  Box,
+  Text,
+  Button,
+  Panel,
+  Card,
 } from '@ciaui/core';
 
-// Import input types 
-import type {
-  ClickEvent,
-  Rect,
-  InputKeyboardEvent,
-  InputDragEvent,
-} from '@ciaui/core';
+import type { ComponentColor, RenderOutput } from '@ciaui/core';
 
 import { 
   createWebGPURenderer, 
   WebGPURenderer,
-  Quad,
   VERSION as RENDER_VERSION 
 } from '@ciaui/render-webgpu';
 
@@ -55,267 +54,249 @@ const clearQuadsBtn = document.getElementById('clearQuads')!;
 
 let renderer: WebGPURenderer | null = null;
 let inputManager: InputManager | null = null;
-let quads: Quad[] = [];
+let ui: UIManager | null = null;
 let fontLoaded = false;
 
-// Interaction state
-let hoveredQuadIndex: number | null = null;
-let activeQuadIndex: number | null = null;
-let dragOffset = { x: 0, y: 0 };
-
-// Track which quads are interactive (buttons start at index 2, cards start at index 7)
-const BUTTON_START_INDEX = 2;
-const BUTTON_COUNT = 5;
-const CARD_START_INDEX = 7;
-
 // ───────────────────────────────────────────────────────────────────────────
-// Helpers
+// Color Palette
 // ───────────────────────────────────────────────────────────────────────────
 
-function randomColor(): [number, number, number, number] {
-  const colors = [
-    [0.376, 0.647, 0.980, 0.9],  // Blue
-    [0.655, 0.545, 0.980, 0.9],  // Purple
-    [0.290, 0.870, 0.502, 0.9],  // Green
-    [0.984, 0.749, 0.141, 0.9],  // Yellow
-    [0.973, 0.443, 0.443, 0.9],  // Red
-    [0.178, 0.831, 0.749, 0.9],  // Teal
-  ];
-  return colors[Math.floor(Math.random() * colors.length)] as [number, number, number, number];
-}
+const colors = {
+  background: [0.04, 0.04, 0.06, 1] as ComponentColor,
+  header: [0.07, 0.07, 0.1, 0.95] as ComponentColor,
+  panel: [0.05, 0.05, 0.08, 0.9] as ComponentColor,
+  card: [0.07, 0.07, 0.1, 0.85] as ComponentColor,
+  buttonBlue: [0.376, 0.647, 0.980, 0.9] as ComponentColor,
+  buttonPurple: [0.655, 0.545, 0.980, 0.9] as ComponentColor,
+  buttonGreen: [0.290, 0.870, 0.502, 0.9] as ComponentColor,
+  buttonYellow: [0.984, 0.749, 0.141, 0.9] as ComponentColor,
+  buttonRed: [0.973, 0.443, 0.443, 0.9] as ComponentColor,
+  textPrimary: [1, 1, 1, 1] as ComponentColor,
+  textSecondary: [0.8, 0.8, 0.85, 1] as ComponentColor,
+  textMuted: [0.5, 0.5, 0.55, 1] as ComponentColor,
+};
 
-function createInitialQuads(): Quad[] {
-  const tokens = getTokens();
+// ───────────────────────────────────────────────────────────────────────────
+// UI Building
+// ───────────────────────────────────────────────────────────────────────────
+
+function buildUI(): void {
+  if (!ui) return;
+  
+  // Local reference to avoid null checks in callbacks
+  const uiManager = ui;
+  
   const mode = getMode();
+  const tokens = getTokens();
+  const isImmersive = mode === 'immersive';
   
-  // Create some UI-like elements
-  const quads: Quad[] = [];
+  // Clear existing UI
+  uiManager.clear();
   
-  // Header bar
-  quads.push({
+  // Get dimensions
+  const width = canvas.width;
+  const height = canvas.height;
+  
+  // Sizes based on mode
+  const headerHeight = isImmersive ? 72 : 48;
+  const panelWidth = isImmersive ? 320 : 240;
+  const buttonSize = isImmersive ? 56 : 32;
+  const cardWidth = isImmersive ? 200 : 150;
+  const cardHeight = isImmersive ? 150 : 100;
+  const gap = isImmersive ? 16 : 12;
+  const fontSize = isImmersive ? 16 : 14;
+  
+  // ─────────────────────────────────────────────────────────────────────────
+  // Header Bar
+  // ─────────────────────────────────────────────────────────────────────────
+  
+  const header = new Box({
+    id: 'header',
     x: 0,
     y: 0,
-    width: canvas.width,
-    height: mode === 'immersive' ? 72 : 48,
-    color: [0.07, 0.07, 0.1, 0.95],
+    width: width,
+    height: headerHeight,
+    color: colors.header,
     cornerRadius: 0,
   });
+  uiManager.add(header);
   
-  // Left panel
-  quads.push({
-    x: 16,
-    y: mode === 'immersive' ? 88 : 64,
-    width: mode === 'immersive' ? 320 : 240,
-    height: canvas.height - (mode === 'immersive' ? 104 : 80),
-    color: [0.05, 0.05, 0.08, 0.9],
-    cornerRadius: tokens.radius?.lg ?? 8,
-  });
+  // Header title (if font loaded)
+  if (fontLoaded) {
+    const title = new Text({
+      id: 'title',
+      text: 'CIAUI Framework',
+      x: 250,
+      y: isImmersive ? 24 : 16,
+      fontSize: isImmersive ? 24 : 16,
+      color: colors.textPrimary,
+    });
+    uiManager.add(title);
+  }
   
-  // Create some "buttons" in the header
-  const buttonSize = mode === 'immersive' ? 56 : 32;
-  const buttonGap = mode === 'immersive' ? 12 : 8;
-  const buttonY = mode === 'immersive' ? 8 : 8;
+  // ─────────────────────────────────────────────────────────────────────────
+  // Toolbar Buttons
+  // ─────────────────────────────────────────────────────────────────────────
   
-  for (let i = 0; i < 5; i++) {
-    quads.push({
+  const buttonColors = [
+    colors.buttonBlue,
+    colors.buttonPurple,
+    colors.buttonGreen,
+    colors.buttonYellow,
+    colors.buttonRed,
+  ];
+  
+  const buttonGap = isImmersive ? 12 : 8;
+  const buttonY = isImmersive ? 8 : 8;
+  
+  buttonColors.forEach((color, i) => {
+    const btn = new Box({
+      id: `toolbar-btn-${i}`,
       x: 16 + i * (buttonSize + buttonGap),
       y: buttonY,
       width: buttonSize,
       height: buttonSize,
-      color: randomColor(),
+      color: color,
       cornerRadius: tokens.radius?.md ?? 6,
+      interactive: true,
+      cursor: 'pointer',
+      onClick: () => {
+        console.log(`[UI] Toolbar button ${i + 1} clicked`);
+      },
     });
-  }
+    uiManager.add(btn);
+  });
   
-  // Create a grid of cards in the main area
-  const cardWidth = mode === 'immersive' ? 200 : 150;
-  const cardHeight = mode === 'immersive' ? 150 : 100;
-  const cardGap = mode === 'immersive' ? 16 : 12;
-  const startX = mode === 'immersive' ? 352 : 272;
-  const startY = mode === 'immersive' ? 88 : 64;
+  // ─────────────────────────────────────────────────────────────────────────
+  // Left Panel
+  // ─────────────────────────────────────────────────────────────────────────
   
-  const cols = Math.floor((canvas.width - startX - 16) / (cardWidth + cardGap));
-  const rows = Math.floor((canvas.height - startY - 16) / (cardHeight + cardGap));
+  const leftPanel = new Panel({
+    id: 'left-panel',
+    x: 16,
+    y: headerHeight + gap,
+    width: panelWidth,
+    height: height - headerHeight - gap * 2,
+    color: colors.panel,
+    cornerRadius: tokens.radius?.lg ?? 8,
+    title: 'Navigator',
+    titleColor: colors.textSecondary,
+    padding: 16,
+  });
+  uiManager.add(leftPanel);
   
+  // Add some buttons inside the panel
+  const panelButtonLabels = ['Datasets', 'Views', 'Annotations', 'Settings'];
+  panelButtonLabels.forEach((label, i) => {
+    const btn = new Button({
+      id: `nav-btn-${i}`,
+      x: 16,
+      y: headerHeight + gap + 56 + i * (buttonSize + 8),
+      width: panelWidth - 32,
+      height: buttonSize,
+      label: label,
+      color: [0.15, 0.15, 0.2, 0.8],
+      cornerRadius: 6,
+      fontSize: fontSize - 2,
+      onClick: () => {
+        console.log(`[UI] Nav button "${label}" clicked`);
+      },
+    });
+    uiManager.add(btn);
+  });
+  
+  // ─────────────────────────────────────────────────────────────────────────
+  // Main Content Area - Card Grid
+  // ─────────────────────────────────────────────────────────────────────────
+  
+  const contentStartX = 16 + panelWidth + gap;
+  const contentStartY = headerHeight + gap;
+  const contentWidth = width - contentStartX - 16;
+  const contentHeight = height - headerHeight - gap * 2;
+  
+  // Calculate grid
+  const cols = Math.floor((contentWidth + gap) / (cardWidth + gap));
+  const rows = Math.floor((contentHeight + gap) / (cardHeight + gap));
+  
+  let cardIndex = 0;
   for (let row = 0; row < Math.min(rows, 4); row++) {
     for (let col = 0; col < Math.min(cols, 5); col++) {
-      quads.push({
-        x: startX + col * (cardWidth + cardGap),
-        y: startY + row * (cardHeight + cardGap),
+      const x = contentStartX + col * (cardWidth + gap);
+      const y = contentStartY + row * (cardHeight + gap);
+      
+      const idx = cardIndex;
+      
+      // Track position at drag start (mutable)
+      let dragStartX = x;
+      let dragStartY = y;
+      
+      const card = new Card({
+        id: `card-${cardIndex}`,
+        x: x,
+        y: y,
         width: cardWidth,
         height: cardHeight,
-        color: [0.07, 0.07, 0.1, 0.85],
+        color: colors.card,
         cornerRadius: tokens.radius?.lg ?? 8,
-      });
-    }
-  }
-  
-  return quads;
-}
-
-function addRandomQuads(count: number): void {
-  const tokens = getTokens();
-  const mode = getMode();
-  const minSize = mode === 'immersive' ? 44 : 24;
-  const maxSize = mode === 'immersive' ? 150 : 100;
-  
-  for (let i = 0; i < count; i++) {
-    const width = minSize + Math.random() * (maxSize - minSize);
-    const height = minSize + Math.random() * (maxSize - minSize);
-    
-    quads.push({
-      x: Math.random() * (canvas.width - width),
-      y: Math.random() * (canvas.height - height),
-      width,
-      height,
-      color: randomColor(),
-      cornerRadius: Math.random() * (tokens.radius?.lg ?? 8),
-    });
-  }
-}
-
-// ───────────────────────────────────────────────────────────────────────────
-// Input Management
-// ───────────────────────────────────────────────────────────────────────────
-
-/**
- * Register hit regions for interactive quads
- */
-function registerHitRegions(): void {
-  if (!inputManager) return;
-  
-  // Clear existing regions
-  inputManager.clearRegions();
-  
-  // Note: Quads are already in device pixels (canvas coordinates)
-  // InputManager.toCanvasCoords converts mouse CSS coords to canvas coords
-  // So hit regions should use quad bounds directly (no pixelRatio multiplication)
-  
-  // Register buttons (indices 2-6)
-  for (let i = BUTTON_START_INDEX; i < BUTTON_START_INDEX + BUTTON_COUNT; i++) {
-    const quad = quads[i];
-    if (!quad) continue;
-    
-    const bounds: Rect = {
-      x: quad.x,
-      y: quad.y,
-      width: quad.width,
-      height: quad.height,
-    };
-    
-    inputManager.register(`button-${i - BUTTON_START_INDEX}`, bounds, {
-      onPointerEnter: () => {
-        hoveredQuadIndex = i;
-        console.log(`[Input] Hover button ${i - BUTTON_START_INDEX + 1}`);
-      },
-      onPointerLeave: () => {
-        if (hoveredQuadIndex === i) hoveredQuadIndex = null;
-      },
-      onClick: (e: ClickEvent) => {
-        console.log(`[Input] Click button ${i - BUTTON_START_INDEX + 1} at (${e.x.toFixed(0)}, ${e.y.toFixed(0)})`);
-        // Flash the button brighter
-        if (quads[i]) {
-          const originalAlpha = quads[i].color[3];
-          quads[i].color = [1, 1, 1, 1];
-          setTimeout(() => {
-            if (quads[i]) quads[i].color[3] = originalAlpha;
-          }, 100);
-        }
-      },
-    }, {
-      cursor: 'pointer',
-      zIndex: 10,
-      data: { type: 'button', index: i - BUTTON_START_INDEX },
-    });
-  }
-  
-  // Register cards
-  for (let i = CARD_START_INDEX; i < quads.length; i++) {
-    const quad = quads[i];
-    if (!quad) continue;
-    
-    const cardIndex = i - CARD_START_INDEX;
-    const bounds: Rect = {
-      x: quad.x,
-      y: quad.y,
-      width: quad.width,
-      height: quad.height,
-    };
-    
-    inputManager.register(`card-${cardIndex}`, bounds, {
-      onPointerEnter: () => {
-        hoveredQuadIndex = i;
-      },
-      onPointerLeave: () => {
-        if (hoveredQuadIndex === i) hoveredQuadIndex = null;
-      },
-      onClick: (e: ClickEvent) => {
-        console.log(`[Input] Click card ${cardIndex + 1} at (${e.x.toFixed(0)}, ${e.y.toFixed(0)})`);
-      },
-      onDragStart: (e: InputDragEvent) => {
-        activeQuadIndex = i;
-        dragOffset.x = e.x - quad.x;
-        dragOffset.y = e.y - quad.y;
-        console.log(`[Input] Start dragging card ${cardIndex + 1}`);
-      },
-      onDrag: (e: InputDragEvent) => {
-        if (activeQuadIndex === i && quads[i]) {
-          quads[i].x = e.x - dragOffset.x;
-          quads[i].y = e.y - dragOffset.y;
-          // Update hit region bounds
-          inputManager?.updateBounds(`card-${cardIndex}`, {
-            x: quads[i].x,
-            y: quads[i].y,
-            width: quad.width,
-            height: quad.height,
+        interactive: true,
+        draggable: true,
+        onClick: () => {
+          console.log(`[UI] Card ${idx + 1} clicked`);
+        },
+        onDragStart: (dragX, dragY) => {
+          // Capture current position when drag starts
+          dragStartX = card.bounds.x;
+          dragStartY = card.bounds.y;
+          console.log(`[UI] Start dragging card ${idx + 1}`);
+        },
+        onDrag: (dragX, dragY, dx, dy) => {
+          // Update card position relative to where drag started
+          card.setProps({
+            x: dragStartX + dx,
+            y: dragStartY + dy,
           });
-        }
-      },
-      onDragEnd: () => {
-        if (activeQuadIndex === i) {
-          console.log(`[Input] End dragging card ${cardIndex + 1}`);
-          activeQuadIndex = null;
-        }
-      },
-    }, {
-      cursor: 'grab',
-      zIndex: 5 + cardIndex, // Cards stack in order
-      data: { type: 'card', index: cardIndex },
-    });
+        },
+        onDragEnd: (dragX, dragY) => {
+          console.log(`[UI] End dragging card ${idx + 1}`);
+        },
+      });
+      
+      uiManager.add(card);
+      
+      // Add card label as child of card (so it moves with the card)
+      if (fontLoaded) {
+        const label = new Text({
+          id: `card-label-${cardIndex}`,
+          text: `Card ${cardIndex + 1}`,
+          x: 12,  // Relative to card
+          y: 16,  // Relative to card
+          fontSize: fontSize,
+          color: colors.textSecondary,
+        });
+        card.addChild(label);
+      }
+      
+      cardIndex++;
+    }
   }
   
-  console.log(`[Input] Registered ${inputManager.getRegionCount()} hit regions`);
-}
-
-/**
- * Set up input manager
- */
-function setupInputManager(): void {
-  inputManager = createInputManager({
-    target: canvas,
-    pixelRatio: window.devicePixelRatio || 1,
-    dragThreshold: 5,
-    touch: true,
-  });
+  // ─────────────────────────────────────────────────────────────────────────
+  // FPS Counter
+  // ─────────────────────────────────────────────────────────────────────────
   
-  // Start listening for input
-  inputManager.start();
+  if (fontLoaded) {
+    const fpsText = new Text({
+      id: 'fps-text',
+      text: 'FPS: --',
+      x: width - 80,
+      y: 16,
+      fontSize: 12,
+      color: colors.textMuted,
+    });
+    uiManager.add(fpsText);
+  }
   
-  // Log all pointer moves (debug)
-  // inputManager.on('pointermove', (e) => {
-  //   console.log(`Move: (${e.pointer.x.toFixed(0)}, ${e.pointer.y.toFixed(0)})`);
-  // });
-  
-  // Global keyboard handler
-  inputManager.on<InputKeyboardEvent>('keydown', (e) => {
-    if (e.key === 'Escape') {
-      // Cancel drag
-      activeQuadIndex = null;
-      console.log('[Input] Cancelled drag');
-    }
-  });
-  
-  console.log('[Input] InputManager initialized');
+  console.log(`[UI] Built ${uiManager.getComponentCount()} components, ${uiManager.getHitRegionCount()} hit regions`);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -324,7 +305,7 @@ function setupInputManager(): void {
 
 async function main() {
   console.log('╔═══════════════════════════════════════════════════════════╗');
-  console.log('║              CIAUI Framework - Hello World                ║');
+  console.log('║         CIAUI Framework - Component System Demo           ║');
   console.log('╠═══════════════════════════════════════════════════════════╣');
   console.log(`║  Core Version: ${CORE_VERSION.padEnd(42)}║`);
   console.log(`║  Render Version: ${RENDER_VERSION.padEnd(40)}║`);
@@ -363,7 +344,7 @@ async function main() {
     return;
   }
   
-  // Try to load font (if available)
+  // Try to load font
   try {
     const font = await renderer.loadFont(
       'IBM Plex Sans',
@@ -374,135 +355,124 @@ async function main() {
     console.log('Font loaded:', fontLoaded);
   } catch (e) {
     console.log('Font not available - text rendering disabled');
-    console.log('To enable text, generate an MSDF atlas. See docs/generating-fonts.md');
     fontLoaded = false;
   }
   
-  // Create initial quads
-  quads = createInitialQuads();
-  quadsEl.textContent = quads.length.toString();
+  // Create input manager
+  inputManager = createInputManager({
+    target: canvas,
+    pixelRatio: window.devicePixelRatio || 1,
+    dragThreshold: 5,
+  });
+  inputManager.start();
   
-  // Set up input manager
-  setupInputManager();
-  registerHitRegions();
+  // Create UI manager
+  ui = createUIManager({
+    width: canvas.width,
+    height: canvas.height,
+    inputManager: inputManager,
+    pixelRatio: window.devicePixelRatio || 1,
+  });
   
-  // Set up mode change listener
+  // Build initial UI
+  buildUI();
+  
+  // Mode change listener
   onModeChange((mode) => {
     console.log('Mode changed to:', mode);
     modeEl.textContent = mode;
-    
-    // Recreate quads with new sizes
-    quads = createInitialQuads();
-    quadsEl.textContent = quads.length.toString();
-    
-    // Re-register hit regions with new bounds
-    registerHitRegions();
+    buildUI();
   });
   
-  // Set up button handlers
+  // DOM button handlers
   toggleModeBtn.addEventListener('click', () => {
-    const currentMode = getMode();
-    setMode(currentMode === 'desktop' ? 'immersive' : 'desktop');
+    setMode(getMode() === 'desktop' ? 'immersive' : 'desktop');
   });
   
   addQuadsBtn.addEventListener('click', () => {
-    addRandomQuads(100);
-    quadsEl.textContent = quads.length.toString();
+    // Add some random boxes
+    if (!ui) return;
+    for (let i = 0; i < 10; i++) {
+      const box = new Box({
+        x: Math.random() * (canvas.width - 100),
+        y: Math.random() * (canvas.height - 100),
+        width: 50 + Math.random() * 50,
+        height: 50 + Math.random() * 50,
+        color: [Math.random(), Math.random(), Math.random(), 0.8],
+        cornerRadius: Math.random() * 12,
+        interactive: true,
+        cursor: 'pointer',
+        onClick: () => console.log('[UI] Random box clicked'),
+      });
+      ui.add(box);
+    }
+    console.log(`[UI] Added 10 random boxes. Total: ${ui.getComponentCount()}`);
   });
   
   clearQuadsBtn.addEventListener('click', () => {
-    quads = createInitialQuads();
-    quadsEl.textContent = quads.length.toString();
-    registerHitRegions();
+    buildUI();
+  });
+  
+  // Handle resize
+  window.addEventListener('resize', () => {
+    if (ui && renderer) {
+      // Renderer handles canvas resize internally
+      setTimeout(() => {
+        ui!.setSize(canvas.width, canvas.height);
+        buildUI();
+      }, 100);
+    }
   });
   
   // Start render loop
   renderer.start((r, time) => {
-    // Clear previous frame data
+    if (!ui) return;
+    
+    // Clear previous frame
     r.clearQuads();
     r.clearText();
     
-    // Add quads with hover/active effects
-    for (let i = 0; i < quads.length; i++) {
-      const quad = quads[i];
-      
-      // Apply hover effect (brighten)
-      if (hoveredQuadIndex === i || activeQuadIndex === i) {
-        const brightness = activeQuadIndex === i ? 1.3 : 1.15;
-        r.addQuad({
-          ...quad,
-          color: [
-            Math.min(1, quad.color[0] * brightness),
-            Math.min(1, quad.color[1] * brightness),
-            Math.min(1, quad.color[2] * brightness),
-            quad.color[3],
-          ] as [number, number, number, number],
-        });
-      } else {
-        r.addQuad(quad);
-      }
+    // Render UI and get output
+    const output = ui.render();
+    
+    // Send quads to renderer
+    for (const quad of output.quads) {
+      r.addQuad({
+        x: quad.x,
+        y: quad.y,
+        width: quad.width,
+        height: quad.height,
+        color: quad.color,
+        cornerRadius: quad.cornerRadius ?? 0,
+      });
     }
     
-    // Animate some quads (pulse the buttons)
-    for (let i = BUTTON_START_INDEX; i < BUTTON_START_INDEX + BUTTON_COUNT; i++) {
-      if (quads[i] && hoveredQuadIndex !== i) {
-        const pulse = Math.sin(time / 500 + i) * 0.1 + 0.9;
-        quads[i].color[3] = pulse;
-      }
+    // Send text to renderer
+    for (const text of output.texts) {
+      r.drawText(text.text, text.x, text.y, text.fontSize, text.color);
     }
     
-    // Add text if font is loaded
+    // Update FPS display
     if (fontLoaded) {
-      const mode = getMode();
-      const headerFontSize = mode === 'immersive' ? 24 : 16;
-      const bodyFontSize = mode === 'immersive' ? 18 : 14;
-      
-      // Header text
-      r.drawText('CIAUI Framework', 250, mode === 'immersive' ? 24 : 16, headerFontSize, [1, 1, 1, 1]);
-      
-      // Panel title
-      r.drawText('Navigator', 32, mode === 'immersive' ? 104 : 80, bodyFontSize, [0.9, 0.9, 0.95, 1]);
-      
-      // Card labels
-      const cardStartX = mode === 'immersive' ? 352 : 272;
-      const cardStartY = mode === 'immersive' ? 88 : 64;
-      const cardWidth = mode === 'immersive' ? 200 : 150;
-      const cardHeight = mode === 'immersive' ? 150 : 100;
-      const cardGap = mode === 'immersive' ? 16 : 12;
-      
-      for (let row = 0; row < 2; row++) {
-        for (let col = 0; col < 3; col++) {
-          const x = cardStartX + col * (cardWidth + cardGap) + 12;
-          const y = cardStartY + row * (cardHeight + cardGap) + 16;
-          r.drawText(`Card ${row * 3 + col + 1}`, x, y, bodyFontSize, [0.8, 0.8, 0.85, 1]);
-        }
+      const fpsText = ui.find('fps-text') as Text | undefined;
+      if (fpsText) {
+        fpsText.setText(`FPS: ${r.getFPS()}`);
       }
-      
-      // FPS counter
-      r.drawText(`FPS: ${r.getFPS()}`, canvas.width - 80, 16, 12, [0.5, 0.5, 0.55, 1]);
     }
     
-    // Update stats display
-    const stats = r.getStats();
-    quadsEl.textContent = stats.quads.toString();
+    // Update stats
+    quadsEl.textContent = output.quads.length.toString();
   });
   
   console.log('Render loop started!');
-  if (!fontLoaded) {
-    console.log('');
-    console.log('📝 To enable text rendering:');
-    console.log('   1. Install msdf-atlas-gen: brew install msdf-atlas-gen');
-    console.log('   2. Download IBM Plex Sans from Google Fonts');
-    console.log('   3. Generate atlas:');
-    console.log('      msdf-atlas-gen -font IBMPlexSans-Regular.ttf -type msdf \\');
-    console.log('        -format png -imageout public/fonts/ibm-plex-sans.png \\');
-    console.log('        -json public/fonts/ibm-plex-sans.json -size 48 -pxrange 4');
-    console.log('');
-  }
+  console.log('');
+  console.log('🎮 Component System Features:');
+  console.log('   • Click toolbar buttons - logs to console');
+  console.log('   • Click nav buttons - logs to console');
+  console.log('   • Hover cards - visual feedback');
+  console.log('   • Drag cards - move them around');
+  console.log('   • Add random boxes with button');
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// Start
-// ───────────────────────────────────────────────────────────────────────────
-
+// Start!
 main().catch(console.error);
